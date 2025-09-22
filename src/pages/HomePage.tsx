@@ -1,0 +1,639 @@
+import { useMemo, useState } from 'react'
+
+import { useAuth } from '../auth/auth-context'
+import MonthlyCalendar from '../components/calendar/MonthlyCalendar'
+import PickupForm, { type PickupFormValues } from '../components/pickups/PickupForm'
+import CompletePickupForm from '../components/pickups/CompletePickupForm'
+import Modal from '../components/shared/Modal'
+import {
+  upcomingPickups,
+  type Pickup,
+  type PickupKind,
+  type PickupStatus,
+  type PickupTimeSlot,
+} from '../data/pickups'
+
+const statusStyles: Record<PickupStatus, { card: string; chip: string; label: string }> = {
+  pending: {
+    card: 'border-slate-800 bg-slate-900/70',
+    chip: 'border-slate-700/70 bg-slate-800/70 text-slate-300',
+    label: 'Pendiente',
+  },
+  confirmed: {
+    card: 'border-cyan-500/40 bg-cyan-500/10',
+    chip: 'border-cyan-400/40 bg-cyan-500/15 text-cyan-200',
+    label: 'Confirmada',
+  },
+  rejected: {
+    card: 'border-red-500/40 bg-red-500/10',
+    chip: 'border-red-400/40 bg-red-500/15 text-red-200',
+    label: 'Rechazada',
+  },
+  completed: {
+    card: 'border-emerald-500/60 bg-emerald-500/10',
+    chip: 'border-emerald-400/60 bg-emerald-500/15 text-emerald-200',
+    label: 'Realizada',
+  },
+}
+
+const kindLabels: Record<PickupKind, string> = {
+  organico: 'Orgánico',
+  inorganicos: 'Inorgánicos',
+  peligrosos: 'Peligrosos',
+}
+
+const slotStartHour: Record<PickupTimeSlot, number> = {
+  '08:00 - 12:00': 8,
+  '12:00 - 16:00': 12,
+  '16:00 - 20:00': 16,
+}
+
+function toTitleCase(value: string) {
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+function formatDateLabel(isoDate: string) {
+  const target = new Date(isoDate)
+  const fullFormatter = new Intl.DateTimeFormat('es-CO', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+  const shortFormatter = new Intl.DateTimeFormat('es-CO', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+
+  return {
+    full: toTitleCase(fullFormatter.format(target)),
+    short: toTitleCase(shortFormatter.format(target)),
+  }
+}
+
+function getRemainingDaysLabel(isoDate: string) {
+  const now = new Date()
+  const target = new Date(isoDate)
+  const msPerDay = 1000 * 60 * 60 * 24
+  const diff = Math.ceil((target.getTime() - now.getTime()) / msPerDay)
+
+  if (diff > 1) return `Faltan ${diff} días`
+  if (diff === 1) return 'Falta 1 día'
+  if (diff === 0) return 'Es hoy'
+  if (diff === -1) return 'Fue hace 1 día'
+  return `Fue hace ${Math.abs(diff)} días`
+}
+
+function startOfDay(date: Date) {
+  const result = new Date(date)
+  result.setHours(0, 0, 0, 0)
+  return result
+}
+
+function dateFromInput(value: string) {
+  const [year, month, day] = value.split('-').map(Number)
+  return new Date(year, (month ?? 1) - 1, day ?? 1)
+}
+
+function isDateInputAfter(value: string, reference: Date) {
+  return startOfDay(dateFromInput(value)) > reference
+}
+
+function isDateSelectable(date: Date, reference: Date) {
+  return startOfDay(date) > reference
+}
+
+function toDateInputValue(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function buildScheduledIso(dateInput: string, slot: PickupTimeSlot) {
+  const [year, month, day] = dateInput.split('-').map(Number)
+  const hour = slotStartHour[slot]
+  const date = new Date(year, (month ?? 1) - 1, day ?? 1, hour, 0, 0, 0)
+  return date.toISOString()
+}
+
+function toDateTimeLocalValue(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${year}-${month}-${day}T${hours}:${minutes}`
+}
+
+function isoFromDateTimeLocal(value: string) {
+  return new Date(value).toISOString()
+}
+
+function getDateKey(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function extractDateKey(isoDate: string) {
+  return getDateKey(new Date(isoDate))
+}
+
+function HomePage() {
+  const { user } = useAuth()
+  const today = useMemo(() => startOfDay(new Date()), [])
+  const tomorrow = useMemo(() => {
+    const next = new Date(today)
+    next.setDate(next.getDate() + 1)
+    return next
+  }, [today])
+  const minDateInput = useMemo(() => toDateInputValue(tomorrow), [tomorrow])
+
+  const [pickups, setPickups] = useState<Pickup[]>(upcomingPickups)
+  const [monthCursor, setMonthCursor] = useState(() => {
+    const today = new Date()
+    return new Date(today.getFullYear(), today.getMonth(), 1)
+  })
+  const [isScheduleModalOpen, setScheduleModalOpen] = useState(false)
+  const [isEditModalOpen, setEditModalOpen] = useState(false)
+  const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [editingPickup, setEditingPickup] = useState<Pickup | null>(null)
+  const [pickupToComplete, setPickupToComplete] = useState<Pickup | null>(null)
+  const [completeModalDefaultDate, setCompleteModalDefaultDate] = useState<string | null>(null)
+
+  const userLogin = user?.username ?? ''
+  const normalizedCollectorUsername = useMemo(() => userLogin.trim().toLowerCase(), [userLogin])
+  const isCitizen = user?.role === 'basic'
+  const isCollector = user?.role === 'collector'
+
+  const activePickups = useMemo(
+    () =>
+      pickups
+        .filter((pickup) => !pickup.archived)
+        .slice()
+        .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()),
+    [pickups],
+  )
+
+  const highlightedDates = useMemo(() => {
+    return new Set(activePickups.map((pickup) => extractDateKey(pickup.scheduledAt)))
+  }, [activePickups])
+
+  const collectorPickups = useMemo(() => {
+    if (!isCollector) return []
+    return activePickups.filter((pickup) => {
+      if (pickup.status === 'pending') return false
+      const assignedUsername = pickup.staffUsername ?? ''
+      return assignedUsername.trim().toLowerCase() === normalizedCollectorUsername
+    })
+  }, [activePickups, isCollector, normalizedCollectorUsername])
+
+  const modalPickupLabel = pickupToComplete ? formatDateLabel(pickupToComplete.scheduledAt) : null
+
+  const handleSelectCalendarDate = (date: Date) => {
+    if (!isDateSelectable(date, today)) return
+    setSelectedDate(toDateInputValue(date))
+    setScheduleModalOpen(true)
+  }
+
+  const handleCreatePickup = (values: PickupFormValues) => {
+    if (!isDateInputAfter(values.date, today)) {
+      window.alert('Selecciona una fecha posterior a hoy.')
+      return
+    }
+
+    const scheduledAt = buildScheduledIso(values.date, values.timeSlot)
+    const newPickup: Pickup = {
+      id: `pk-${Date.now()}`,
+      scheduledAt,
+      status: 'pending',
+      staff: null,
+      kind: values.kind,
+      locality: values.locality,
+      address: values.address,
+      timeSlot: values.timeSlot,
+    }
+
+    setPickups((current) => [...current, newPickup])
+    setScheduleModalOpen(false)
+    setSelectedDate(null)
+  }
+
+  const handleEditPickup = (values: PickupFormValues) => {
+    if (!editingPickup) return
+    if (!isDateInputAfter(values.date, today)) {
+      window.alert('Selecciona una fecha posterior a hoy.')
+      return
+    }
+
+    const scheduledAt = buildScheduledIso(values.date, values.timeSlot)
+
+    setPickups((current) =>
+      current.map((pickup) =>
+        pickup.id === editingPickup.id
+          ? {
+              ...pickup,
+              scheduledAt,
+              kind: values.kind,
+              locality: values.locality,
+              address: values.address,
+              timeSlot: values.timeSlot,
+            }
+          : pickup,
+      ),
+    )
+
+    setEditModalOpen(false)
+    setEditingPickup(null)
+  }
+
+  const handleEditClick = (pickup: Pickup) => {
+    setEditingPickup(pickup)
+    setEditModalOpen(true)
+  }
+
+  const handleDeletePickup = (pickup: Pickup) => {
+    const shouldDelete = window.confirm('¿Deseas eliminar esta recolección del listado?')
+    if (!shouldDelete) return
+
+    setPickups((current) =>
+      current.map((item) => (item.id === pickup.id ? { ...item, archived: true } : item)),
+    )
+  }
+
+  const handleOpenCompleteModal = (pickup: Pickup) => {
+    setPickupToComplete(pickup)
+    setCompleteModalDefaultDate(toDateTimeLocalValue(new Date()))
+  }
+
+  const handleCloseCompleteModal = () => {
+    setPickupToComplete(null)
+    setCompleteModalDefaultDate(null)
+  }
+
+  const handleCompletePickup = (values: { completedAt: string; collectedWeightKg: number | null }) => {
+    if (!pickupToComplete) return
+
+    if (new Date(values.completedAt) > new Date()) {
+      window.alert('No puedes registrar una fecha futura.')
+      return
+    }
+
+    const completedAtIso = isoFromDateTimeLocal(values.completedAt)
+
+    setPickups((current) =>
+      current.map((pickup) =>
+        pickup.id === pickupToComplete.id
+          ? {
+              ...pickup,
+              scheduledAt: completedAtIso,
+              status: 'completed',
+              collectedWeightKg: values.collectedWeightKg,
+            }
+          : pickup,
+      ),
+    )
+
+    handleCloseCompleteModal()
+  }
+
+  if (isCollector) {
+    const completedCount = collectorPickups.filter((pickup) => pickup.status === 'completed').length
+    const pendingCount = collectorPickups.length - completedCount
+
+    return (
+      <div className="flex flex-1 flex-col gap-6">
+        <section className="flex flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/60">
+          <header className="flex flex-col gap-4 border-b border-slate-800 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-slate-100">Recolecciones asignadas</h2>
+              <p className="text-sm text-slate-400">Gestiona y registra las recolecciones a tu cargo.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="inline-flex items-center rounded-full border border-slate-700/70 bg-slate-900/70 px-3 py-2 font-medium text-slate-300">Pendientes: {pendingCount}</span>
+              <span className="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 font-medium text-emerald-200">Realizadas: {completedCount}</span>
+            </div>
+          </header>
+
+          <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5">
+            {collectorPickups.map((pickup) => {
+              const status = statusStyles[pickup.status]
+              const dateLabel = formatDateLabel(pickup.scheduledAt)
+              const canRegister = pickup.status !== 'completed' && pickup.status !== 'rejected'
+              const weightDisplay = pickup.collectedWeightKg != null ? `${pickup.collectedWeightKg} kg` : '—'
+
+              return (
+                <article
+                  key={pickup.id}
+                  className={`rounded-xl border px-5 py-4 shadow-sm shadow-slate-950/30 transition hover:shadow-lg ${status.card}`}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <p className="text-2xl font-semibold tracking-tight text-slate-100">
+                        <span className="hidden lg:inline">{dateLabel.full}</span>
+                        <span className="inline lg:hidden">{dateLabel.short}</span>
+                      </p>
+                      <p className="mt-1 text-sm font-medium text-slate-300">{getRemainingDaysLabel(pickup.scheduledAt)}</p>
+                    </div>
+                    <span
+                      className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] ${status.chip}`}
+                    >
+                      {status.label}
+                    </span>
+                  </div>
+
+                  <dl className="mt-4 grid gap-4 text-sm text-slate-200 md:grid-cols-2">
+                    <div>
+                      <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Localidad</dt>
+                      <dd className="mt-1 font-medium text-slate-100">{pickup.locality}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Dirección</dt>
+                      <dd className="mt-1 font-medium text-slate-100">{pickup.address}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Tipo</dt>
+                      <dd className="mt-1 font-medium text-slate-100">{kindLabels[pickup.kind]}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Horario</dt>
+                      <dd className="mt-1 font-medium text-slate-100">{pickup.timeSlot}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Peso recogido</dt>
+                      <dd className="mt-1 font-medium text-slate-100">{weightDisplay}</dd>
+                    </div>
+                  </dl>
+
+                  <div className="mt-5 flex flex-wrap justify-end gap-3 text-xs font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenCompleteModal(pickup)}
+                      disabled={!canRegister}
+                      className={[
+                        'inline-flex items-center rounded-md px-3 py-2 transition',
+                        canRegister
+                          ? 'bg-cyan-500 text-slate-950 hover:bg-cyan-400'
+                          : 'cursor-not-allowed bg-slate-800 text-slate-500',
+                      ].join(' ')}
+                    >
+                      Registrar recolección
+                    </button>
+                  </div>
+                </article>
+              )
+            })}
+
+            {collectorPickups.length === 0 && (
+              <div className="rounded-xl border border-slate-800 bg-slate-900/50 px-5 py-6 text-sm text-slate-400">
+                No tienes recolecciones asignadas por ahora. Cuando recibas nuevas, aparecerán en este listado.
+              </div>
+            )}
+          </div>
+        </section>
+
+        <Modal
+          open={Boolean(pickupToComplete)}
+          onClose={handleCloseCompleteModal}
+          title="Registrar recolección"
+        >
+          {pickupToComplete && (
+            <div className="space-y-5">
+              {modalPickupLabel && (
+                <div className="rounded-lg border border-slate-800 bg-slate-900/50 px-4 py-3 text-sm text-slate-300">
+                  <p className="font-medium text-slate-100">
+                    <span className="hidden lg:inline">{modalPickupLabel.full}</span>
+                    <span className="inline lg:hidden">{modalPickupLabel.short}</span>
+                  </p>
+                  <p className="mt-1 text-slate-400">
+                    {pickupToComplete.locality} · {pickupToComplete.address}
+                  </p>
+                </div>
+              )}
+              <CompletePickupForm
+                pickup={pickupToComplete}
+                defaultDateTime={completeModalDefaultDate ?? toDateTimeLocalValue(new Date())}
+                onSubmit={handleCompletePickup}
+                onCancel={handleCloseCompleteModal}
+              />
+            </div>
+          )}
+        </Modal>
+      </div>
+    )
+  }
+
+  if (!isCitizen) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center rounded-2xl border border-slate-800 bg-slate-900/60 text-center text-slate-400">
+        <p className="max-w-md">
+          Este panel está orientado a los roles ciudadano y recolector. Ingresa con un usuario compatible para ver su contenido.
+        </p>
+      </div>
+    )
+  }
+
+  const scheduleInitialDate = selectedDate && isDateInputAfter(selectedDate, today) ? selectedDate : minDateInput
+
+  const scheduleInitialValues = {
+    date: scheduleInitialDate,
+    timeSlot: '08:00 - 12:00' as PickupTimeSlot,
+    kind: 'organico' as PickupKind,
+    locality: '',
+    address: '',
+  }
+
+  const editInitialValues = editingPickup
+    ? (() => {
+        const dateString = extractDateKey(editingPickup.scheduledAt)
+        const safeDate = isDateInputAfter(dateString, today) ? dateString : minDateInput
+        return {
+          date: safeDate,
+          timeSlot: editingPickup.timeSlot,
+          kind: editingPickup.kind,
+          locality: editingPickup.locality,
+          address: editingPickup.address,
+        }
+      })()
+    : null
+
+  return (
+    <div className="flex flex-1 flex-col gap-6 lg:min-h-[calc(100vh-14rem)] lg:flex-row lg:items-stretch">
+      <section className="flex w-full flex-col gap-4 lg:w-1/2 xl:w-2/3">
+        <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/60">
+          <header className="flex flex-col gap-4 border-b border-slate-800 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-slate-100">Recolecciones programadas</h2>
+              <p className="text-sm text-slate-400">Organizadas de la más próxima a la más lejana.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 rounded-full border border-slate-700/70 bg-slate-900/70 px-3 py-2 font-medium text-slate-300 transition hover:border-cyan-400/70 hover:text-cyan-200"
+              >
+                Filtrar por tipo
+              </button>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 rounded-full border border-slate-700/70 bg-slate-900/70 px-3 py-2 font-medium text-slate-300 transition hover:border-cyan-400/70 hover:text-cyan-200"
+              >
+                Ordenar por fecha
+              </button>
+            </div>
+          </header>
+
+          <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5">
+            {activePickups.map((pickup) => {
+              const status = statusStyles[pickup.status]
+              let staffDisplay = '—'
+              if (pickup.status === 'pending') {
+                staffDisplay = 'Por confirmar'
+              } else if (pickup.status === 'confirmed') {
+                staffDisplay = pickup.staff ?? 'Asignación pendiente'
+              } else if (pickup.status === 'completed') {
+                staffDisplay = pickup.staff ?? 'Equipo de recolección'
+              }
+              const dateLabel = formatDateLabel(pickup.scheduledAt)
+
+              return (
+                <article
+                  key={pickup.id}
+                  className={`rounded-xl border px-5 py-4 shadow-sm shadow-slate-950/30 transition hover:shadow-lg ${status.card}`}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <p className="text-2xl font-semibold tracking-tight text-slate-100">
+                        <span className="hidden lg:inline">{dateLabel.full}</span>
+                        <span className="inline lg:hidden">{dateLabel.short}</span>
+                      </p>
+                      <p className="mt-1 text-sm font-medium text-slate-300">
+                        {getRemainingDaysLabel(pickup.scheduledAt)}
+                      </p>
+                    </div>
+                    <span
+                      className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] ${status.chip}`}
+                    >
+                      {status.label}
+                    </span>
+                  </div>
+
+                  <dl className="mt-4 grid gap-4 text-sm text-slate-200 md:grid-cols-2">
+                    <div>
+                      <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Staff</dt>
+                      <dd className="mt-1 font-medium text-slate-100">{staffDisplay}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Tipo</dt>
+                      <dd className="mt-1 font-medium text-slate-100">{kindLabels[pickup.kind]}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Localidad</dt>
+                      <dd className="mt-1 font-medium text-slate-100">{pickup.locality}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Dirección</dt>
+                      <dd className="mt-1 font-medium text-slate-100">{pickup.address}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Horario</dt>
+                      <dd className="mt-1 font-medium text-slate-100">{pickup.timeSlot}</dd>
+                    </div>
+                    {pickup.collectedWeightKg != null && (
+                      <div>
+                        <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Peso registrado</dt>
+                        <dd className="mt-1 font-medium text-slate-100">{pickup.collectedWeightKg} kg</dd>
+                      </div>
+                    )}
+                  </dl>
+
+                  <div className="mt-5 flex flex-wrap justify-end gap-3 text-xs font-medium">
+                    <button
+                      type="button"
+                      onClick={() => handleEditClick(pickup)}
+                      className="inline-flex items-center rounded-md border border-slate-700/70 px-3 py-2 text-slate-200 transition hover:border-cyan-400/70 hover:text-cyan-200"
+                    >
+                      Editar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeletePickup(pickup)}
+                      className="inline-flex items-center rounded-md border border-red-500/40 px-3 py-2 text-red-200 transition hover:border-red-400 hover:text-red-100"
+                    >
+                      Eliminar
+                    </button>
+                  </div>
+                </article>
+              )
+            })}
+
+            {activePickups.length === 0 && (
+              <div className="rounded-xl border border-slate-800 bg-slate-900/50 px-5 py-6 text-sm text-slate-400">
+                No tienes recolecciones activas. Programa una nueva usando el calendario.
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <aside className="flex w-full flex-1 items-start justify-center rounded-2xl border border-slate-800 bg-slate-950/30 px-2 py-4 text-slate-500 lg:w-1/2 xl:w-1/3">
+        <MonthlyCalendar
+          month={monthCursor}
+          onMonthChange={setMonthCursor}
+          onSelectDate={handleSelectCalendarDate}
+          highlightedDates={highlightedDates}
+          isDateDisabled={(date) => !isDateSelectable(date, today)}
+        />
+      </aside>
+
+      <Modal
+        open={isScheduleModalOpen}
+        onClose={() => {
+          setScheduleModalOpen(false)
+          setSelectedDate(null)
+        }}
+        title="Programar recolección"
+      >
+        <PickupForm
+          mode="create"
+          initialValue={scheduleInitialValues}
+          minDate={minDateInput}
+          onSubmit={handleCreatePickup}
+          onCancel={() => {
+            setScheduleModalOpen(false)
+            setSelectedDate(null)
+          }}
+        />
+      </Modal>
+
+      <Modal
+        open={isEditModalOpen && Boolean(editInitialValues)}
+        onClose={() => {
+          setEditModalOpen(false)
+          setEditingPickup(null)
+        }}
+        title="Editar recolección"
+      >
+        {editInitialValues && (
+          <PickupForm
+            mode="edit"
+            initialValue={editInitialValues}
+            minDate={minDateInput}
+            onSubmit={handleEditPickup}
+            onCancel={() => {
+              setEditModalOpen(false)
+              setEditingPickup(null)
+            }}
+          />
+        )}
+      </Modal>
+    </div>
+  )
+}
+
+export default HomePage

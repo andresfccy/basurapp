@@ -21,3 +21,7 @@ code {
   font-family: 'Fira Code', 'Fira Mono', ui-monospace, SFMono-Regular, Menlo, Monaco,
     Consolas, 'Liberation Mono', 'Courier New', monospace;
 }
+
+#root {
+  min-height: 100vh;
+}
