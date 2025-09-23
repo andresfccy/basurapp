@@ -35,13 +35,23 @@ function createMonthMatrix(month: Date) {
   })
 }
 
+function toTitleCase(value: string) {
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
 function formatMonthLabel(month: Date) {
-  const formatter = new Intl.DateTimeFormat('es-CO', {
+  const longFormatter = new Intl.DateTimeFormat('es-CO', {
     month: 'long',
     year: 'numeric',
   })
-  const label = formatter.format(month)
-  return label.charAt(0).toUpperCase() + label.slice(1)
+  const shortFormatter = new Intl.DateTimeFormat('es-CO', {
+    month: 'short',
+    year: 'numeric',
+  })
+  return {
+    full: toTitleCase(longFormatter.format(month)),
+    short: toTitleCase(shortFormatter.format(month)),
+  }
 }
 
 function getDateKey(date: Date) {
@@ -106,8 +116,8 @@ function MonthlyCalendar({ month, onMonthChange, onSelectDate, highlightedDates,
 
   return (
     <div className="flex w-full flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 md:gap-3">
+        <div className="flex flex-shrink-0 items-center gap-1 md:gap-2">
           <button
             type="button"
             onClick={goToPreviousYear}
@@ -126,8 +136,11 @@ function MonthlyCalendar({ month, onMonthChange, onSelectDate, highlightedDates,
           </button>
         </div>
 
-        <div className="text-center">
-          <p className="text-lg font-semibold text-slate-100">{label}</p>
+        <div className="min-w-0 flex-1 text-center">
+          <p className="text-lg font-semibold text-slate-100">
+            <span className="hidden md:inline-block">{label.full}</span>
+            <span className="inline-block md:hidden">{label.short}</span>
+          </p>
           <button
             type="button"
             onClick={goToToday}
@@ -137,7 +150,7 @@ function MonthlyCalendar({ month, onMonthChange, onSelectDate, highlightedDates,
           </button>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-shrink-0 items-center gap-1 md:gap-2">
           <button
             type="button"
             onClick={goToNextMonth}
