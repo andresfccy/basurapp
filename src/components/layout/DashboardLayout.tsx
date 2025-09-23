@@ -2,6 +2,9 @@ import { useMemo, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 
 import { getRoleLabel, useAuth } from '../../auth/auth-context'
+import { useConfig } from '../../config/config-context'
+import { usePickups } from '../../pickups/pickups-context'
+import { calculateUserPoints } from '../../utils/points'
 
 type IconProps = {
   className?: string
@@ -26,7 +29,13 @@ const collectorNavItems: NavItem[] = [homeNavItem]
 
 function DashboardLayout() {
   const { user, logout } = useAuth()
+  const { pickups } = usePickups()
+  const { pointsFormula } = useConfig()
   const [collapsed, setCollapsed] = useState(false)
+
+  const userPoints = useMemo(() => (
+    user ? calculateUserPoints(pickups, user.displayName, pointsFormula) : 0
+  ), [pickups, pointsFormula, user])
 
   const navItems = useMemo<NavItem[]>(() => {
     if (!user) return [homeNavItem]
@@ -126,6 +135,10 @@ function DashboardLayout() {
           <h1 className="text-2xl font-semibold tracking-tight text-slate-100">Inicio</h1>
           {user && (
             <div className="flex items-center gap-3 sm:gap-4">
+              <div className="flex items-center gap-2 rounded-full border border-amber-400/60 bg-amber-500/15 px-3 py-1 text-xs font-semibold text-amber-200">
+                <TrophyIcon className="h-4 w-4 text-amber-300" />
+                <span>{userPoints} pts</span>
+              </div>
               <div className="hidden min-w-0 text-right sm:flex sm:flex-col">
                 <span className="truncate text-sm font-semibold text-slate-100">{user.displayName}</span>
                 <span className="text-xs text-slate-400">{getRoleLabel(user.role)}</span>
@@ -267,6 +280,26 @@ function ChevronRightIcon({ className }: IconProps) {
       aria-hidden
     >
       <path d="m9 6 6 6-6 6" />
+    </svg>
+  )
+}
+
+function TrophyIcon({ className }: IconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M8 21h8" />
+      <path d="M12 17a4 4 0 0 0 4-4V3H8v10a4 4 0 0 0 4 4z" />
+      <path d="M5 5H3a2 2 0 0 0 2 2h1V5z" />
+      <path d="M19 5h2a2 2 0 0 1-2 2h-1V5z" />
     </svg>
   )
 }

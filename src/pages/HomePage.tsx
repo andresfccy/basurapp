@@ -9,7 +9,7 @@ import type { FrequencyRules } from '../config/config-context'
 import { usePickups } from '../pickups/pickups-context'
 import CompletePickupForm from '../components/pickups/CompletePickupForm'
 import Modal from '../components/shared/Modal'
-import { calculatePickupPoints, calculateUserPoints } from '../utils/points'
+import { calculatePickupPoints } from '../utils/points'
 import {
   type Pickup,
   type PickupKind,
@@ -253,7 +253,6 @@ function HomePage() {
   const { user } = useAuth()
   const { pointsFormula, frequencyRules } = useConfig()
   const { pickups, addPickup, updatePickup } = usePickups()
-  const userPoints = useMemo(() => (user ? calculateUserPoints(pickups, user.displayName, pointsFormula) : 0), [pickups, pointsFormula, user])
   const today = useMemo(() => startOfDay(new Date()), [])
   const tomorrow = useMemo(() => {
     const next = new Date(today)
@@ -630,10 +629,6 @@ function HomePage() {
 
   const citizenHeaderActions = (
     <>
-      <span className="inline-flex items-center gap-2 rounded-full border border-amber-400/50 bg-amber-500/15 px-3 py-1 text-xs font-semibold text-amber-200">
-        <TrophyIcon className="h-4 w-4 text-amber-300" />
-        {userPoints} pts
-      </span>
       <button
         type="button"
         className="inline-flex items-center gap-1 rounded-full border border-slate-700/70 bg-slate-900/70 px-3 py-2 font-medium text-slate-300 transition hover:border-cyan-400/70 hover:text-cyan-200"
@@ -896,26 +891,6 @@ function HomePage() {
       )}
       {scheduleModals}
     </div>
-  )
-}
-
-function TrophyIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M8 21h8" />
-      <path d="M12 17a4 4 0 0 0 4-4V3H8v10a4 4 0 0 0 4 4z" />
-      <path d="M5 5H3a2 2 0 0 0 2 2h1V5z" />
-      <path d="M19 5h2a2 2 0 0 1-2 2h-1V5z" />
-    </svg>
   )
 }
 
