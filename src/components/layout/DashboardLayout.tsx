@@ -13,13 +13,28 @@ type NavItem = {
   icon: (props: IconProps) => JSX.Element
 }
 
-const navigation: NavItem[] = [
-  { to: '/', label: 'Inicio', icon: HomeIcon },
+const homeNavItem: NavItem = { to: '/', label: 'Inicio', icon: HomeIcon }
+const adminNavItems: NavItem[] = [
+  homeNavItem,
+  { to: '/administracion', label: 'Administración', icon: SettingsIcon },
+  { to: '/usuarios', label: 'Usuarios', icon: UsersIcon },
+  { to: '/recolectores', label: 'Recolectores', icon: TruckIcon },
+  { to: '/reportes', label: 'Reportes', icon: ReportsIcon },
 ]
+const basicNavItems: NavItem[] = [homeNavItem, { to: '/reportes', label: 'Reportes', icon: ReportsIcon }]
+const collectorNavItems: NavItem[] = [homeNavItem]
 
 function DashboardLayout() {
   const { user, logout } = useAuth()
   const [collapsed, setCollapsed] = useState(false)
+
+  const navItems = useMemo<NavItem[]>(() => {
+    if (!user) return [homeNavItem]
+    if (user.role === 'admin') return adminNavItems
+    if (user.role === 'basic') return basicNavItems
+    if (user.role === 'collector') return collectorNavItems
+    return [homeNavItem]
+  }, [user])
 
   const asideClassName = useMemo(
     () =>
@@ -29,6 +44,15 @@ function DashboardLayout() {
       ].join(' '),
     [collapsed],
   )
+
+  const navLinkClassName = (isActive: boolean) =>
+    [
+      'inline-flex w-full items-center rounded-md py-2 text-sm font-medium transition',
+      collapsed ? 'justify-center gap-0 px-2' : 'justify-start gap-3 px-3',
+      isActive
+        ? 'bg-cyan-500/10 text-cyan-200'
+        : 'text-slate-300 hover:bg-slate-800/70 hover:text-slate-100',
+    ].join(' ')
 
   const userInitials = useMemo(() => {
     if (!user) return 'B'
@@ -45,15 +69,6 @@ function DashboardLayout() {
       .join('')
     return initials.toUpperCase() || 'B'
   }, [user])
-
-  const navLinkClassName = (isActive: boolean) =>
-    [
-      'inline-flex w-full items-center rounded-md py-2 text-sm font-medium transition',
-      collapsed ? 'justify-center gap-0 px-2' : 'justify-start gap-3 px-3',
-      isActive
-        ? 'bg-cyan-500/10 text-cyan-200'
-        : 'text-slate-300 hover:bg-slate-800/70 hover:text-slate-100',
-    ].join(' ')
 
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-100">
@@ -81,12 +96,12 @@ function DashboardLayout() {
         </div>
 
         <nav className="flex flex-1 flex-col gap-1">
-          {navigation.map((item) => {
+          {navItems.map((item) => {
             const Icon = item.icon
             return (
               <NavLink key={item.to} to={item.to} end className={({ isActive }) => navLinkClassName(isActive)}>
-                <Icon className="h-5 w-5" />
-                {collapsed ? <span className="sr-only">{item.label}</span> : <span>{item.label}</span>}
+                <Icon className="h-5 w-5 flex-shrink-0" />
+                {collapsed ? <span className="sr-only">{item.label}</span> : <span className="truncate">{item.label}</span>}
               </NavLink>
             )
           })}
@@ -143,6 +158,81 @@ function HomeIcon({ className }: IconProps) {
     >
       <path d="M3 10.5 12 3l9 7.5" />
       <path d="M5 12v8a1 1 0 0 0 1 1h4v-5h4v5h4a1 1 0 0 0 1-1v-8" />
+    </svg>
+  )
+}
+
+function SettingsIcon({ className }: IconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.65 1.65 0 0 0 15 19.4a1.65 1.65 0 0 0-1 .6 1.65 1.65 0 0 0-.33 1.82l.02.07a2 2 0 1 1-3.38 0l.02-.07a1.65 1.65 0 0 0-.33-1.82 1.65 1.65 0 0 0-1-.6 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1-.6 1.65 1.65 0 0 0-1.82.33l-.07.06a2 2 0 1 1 0-3.38l.07.02a1.65 1.65 0 0 0 1.82-.33 1.65 1.65 0 0 0 .6-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-.6 1.65 1.65 0 0 0 .33-1.82l-.02-.07a2 2 0 1 1 3.38 0l-.02.07a1.65 1.65 0 0 0 .33 1.82 1.65 1.65 0 0 0 1 .6 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82 1.65 1.65 0 0 0 .6 1z" />
+    </svg>
+  )
+}
+
+function UsersIcon({ className }: IconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  )
+}
+
+function TruckIcon({ className }: IconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M1 3h15v13H1z" />
+      <path d="M16 8h4l3 3v5h-7z" />
+      <circle cx="5.5" cy="18.5" r="2.5" />
+      <circle cx="18.5" cy="18.5" r="2.5" />
+    </svg>
+  )
+}
+
+function ReportsIcon({ className }: IconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M16 2H8a2 2 0 0 0-2 2v16l6-3 6 3V4a2 2 0 0 0-2-2z" />
     </svg>
   )
 }

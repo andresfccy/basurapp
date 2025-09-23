@@ -8,6 +8,7 @@ export type Pickup = {
   status: PickupStatus
   staff?: string | null
   staffUsername?: string | null
+  requestedBy?: string
   kind: PickupKind
   locality: string
   address: string
@@ -49,6 +50,7 @@ export const upcomingPickups: Pickup[] = [
     status: 'pending',
     staff: null,
     staffUsername: null,
+    requestedBy: 'Andrea Morales',
     kind: 'organico',
     locality: 'Suba',
     address: 'Calle 132 #56-21',
@@ -60,6 +62,7 @@ export const upcomingPickups: Pickup[] = [
     status: 'confirmed',
     staff: 'Laura García',
     staffUsername: 'recolector',
+    requestedBy: 'Andrea Morales',
     kind: 'inorganicos',
     locality: 'Chapinero',
     address: 'Carrera 9 #72-34',
@@ -71,6 +74,7 @@ export const upcomingPickups: Pickup[] = [
     status: 'pending',
     staff: null,
     staffUsername: null,
+    requestedBy: 'Santiago Ruiz',
     kind: 'peligrosos',
     locality: 'Kennedy',
     address: 'Diagonal 40 sur #78-15',
@@ -82,6 +86,7 @@ export const upcomingPickups: Pickup[] = [
     status: 'rejected',
     staff: null,
     staffUsername: null,
+    requestedBy: 'Laura García',
     kind: 'organico',
     locality: 'Engativá',
     address: 'Avenida 68 #90-20',
@@ -93,6 +98,7 @@ export const upcomingPickups: Pickup[] = [
     status: 'completed',
     staff: 'Laura García',
     staffUsername: 'recolector',
+    requestedBy: 'Andrea Morales',
     kind: 'inorganicos',
     locality: 'Fontibón',
     address: 'Calle 23 #103-42',

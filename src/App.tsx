@@ -4,6 +4,10 @@ import { useAuth } from './auth/auth-context'
 import DashboardLayout from './components/layout/DashboardLayout'
 import HomePage from './pages/HomePage'
 import LoginPage from './pages/LoginPage'
+import AdminCollectorsPage from './pages/AdminCollectorsPage'
+import AdminOverviewPage from './pages/AdminOverviewPage'
+import AdminUsersPage from './pages/AdminUsersPage'
+import ReportsPage from './pages/ReportsPage'
 
 type RequireAuthProps = {
   children: JSX.Element
@@ -33,6 +37,10 @@ function App() {
         }
       >
         <Route index element={<HomePage />} />
+        <Route path="administracion" element={<AdminOverviewPage />} />
+        <Route path="usuarios" element={<AdminUsersPage />} />
+        <Route path="recolectores" element={<AdminCollectorsPage />} />
+        <Route path="reportes" element={<ReportsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

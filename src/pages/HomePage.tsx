@@ -1,12 +1,16 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 
 import { useAuth } from '../auth/auth-context'
 import MonthlyCalendar from '../components/calendar/MonthlyCalendar'
 import PickupForm, { type PickupFormValues } from '../components/pickups/PickupForm'
+import { useConfig } from '../config/config-context'
+import type { FrequencyRules } from '../config/config-context'
+import { usePickups } from '../pickups/pickups-context'
 import CompletePickupForm from '../components/pickups/CompletePickupForm'
 import Modal from '../components/shared/Modal'
+import { calculatePickupPoints, calculateUserPoints } from '../utils/points'
 import {
-  upcomingPickups,
   type Pickup,
   type PickupKind,
   type PickupStatus,
@@ -145,8 +149,111 @@ function extractDateKey(isoDate: string) {
   return getDateKey(new Date(isoDate))
 }
 
+function startOfWeek(date: Date) {
+  const result = startOfDay(date)
+  const day = result.getDay()
+  const diff = (day + 6) % 7
+  result.setDate(result.getDate() - diff)
+  return result
+}
+
+function hoursBetween(a: Date, b: Date) {
+  return Math.abs(a.getTime() - b.getTime()) / (1000 * 60 * 60)
+}
+
+const WEEKDAY_LABELS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'] as const
+
+function getWeekdayLabel(index: number) {
+  return WEEKDAY_LABELS[(index % 7 + 7) % 7]
+}
+
+type SchedulingValidationParams = {
+  values: PickupFormValues
+  scheduledDate: Date
+  existingPickups: Pickup[]
+  requestedBy: string
+  rules: FrequencyRules
+  ignorePickupId?: string
+}
+
+function validateSchedulingRules({ values, scheduledDate, existingPickups, requestedBy, rules, ignorePickupId }: SchedulingValidationParams) {
+  const relevantPickups = existingPickups.filter((pickup) => !pickup.archived && pickup.id !== ignorePickupId)
+  const weekStart = startOfWeek(scheduledDate)
+  const weekEnd = new Date(weekStart)
+  weekEnd.setDate(weekEnd.getDate() + 7)
+
+  const pickupsSameWeek = relevantPickups.filter((pickup) => {
+    const pickupDate = new Date(pickup.scheduledAt)
+    return pickupDate >= weekStart && pickupDate < weekEnd
+  })
+
+  const userWeekPickups = pickupsSameWeek.filter(
+    (pickup) => pickup.kind === values.kind && pickup.requestedBy === requestedBy,
+  )
+
+  if (values.kind === 'organico') {
+    const assignedWeekday =
+      rules.organico.weekdayByLocality[values.locality] ?? rules.organico.weekdayByLocality.default
+
+    if (typeof assignedWeekday === 'number' && scheduledDate.getDay() !== assignedWeekday) {
+      return {
+        valid: false,
+        message: `Las recolecciones orgánicas en ${values.locality} solo se programan los ${getWeekdayLabel(assignedWeekday)}.`,
+      }
+    }
+  }
+
+  if (values.kind === 'inorganicos') {
+    if (userWeekPickups.length >= rules.inorganicos.maxPerWeek) {
+      return {
+        valid: false,
+        message: `Solo puedes agendar ${rules.inorganicos.maxPerWeek} recolecciones de inorgánicos por semana.`,
+      }
+    }
+
+    const hasConflict = userWeekPickups.some((pickup) => {
+      const pickupDate = new Date(pickup.scheduledAt)
+      return hoursBetween(pickupDate, scheduledDate) < rules.inorganicos.minHoursBetween
+    })
+
+    if (hasConflict) {
+      return {
+        valid: false,
+        message: `Debes dejar al menos ${rules.inorganicos.minHoursBetween} horas entre recolecciones de inorgánicos.`,
+      }
+    }
+  }
+
+  if (values.kind === 'peligrosos') {
+    if (userWeekPickups.length >= rules.peligrosos.maxPerWeekPerUser) {
+      return {
+        valid: false,
+        message: 'Solo puedes programar una recolección de residuos peligrosos por semana.',
+      }
+    }
+
+    const capacity =
+      rules.peligrosos.capacityByLocality[values.locality] ?? rules.peligrosos.capacityByLocality.default ?? 1
+    const localityCount = pickupsSameWeek.filter(
+      (pickup) => pickup.kind === 'peligrosos' && pickup.locality === values.locality,
+    ).length
+
+    if (localityCount >= capacity) {
+      return {
+        valid: false,
+        message: `Los cupos para residuos peligrosos en ${values.locality} ya están completos esta semana.`,
+      }
+    }
+  }
+
+  return { valid: true }
+}
+
 function HomePage() {
   const { user } = useAuth()
+  const { pointsFormula, frequencyRules } = useConfig()
+  const { pickups, addPickup, updatePickup } = usePickups()
+  const userPoints = useMemo(() => (user ? calculateUserPoints(pickups, user.displayName, pointsFormula) : 0), [pickups, pointsFormula, user])
   const today = useMemo(() => startOfDay(new Date()), [])
   const tomorrow = useMemo(() => {
     const next = new Date(today)
@@ -155,7 +262,6 @@ function HomePage() {
   }, [today])
   const minDateInput = useMemo(() => toDateInputValue(tomorrow), [tomorrow])
 
-  const [pickups, setPickups] = useState<Pickup[]>(upcomingPickups)
   const [monthCursor, setMonthCursor] = useState(() => {
     const today = new Date()
     return new Date(today.getFullYear(), today.getMonth(), 1)
@@ -166,11 +272,14 @@ function HomePage() {
   const [editingPickup, setEditingPickup] = useState<Pickup | null>(null)
   const [pickupToComplete, setPickupToComplete] = useState<Pickup | null>(null)
   const [completeModalDefaultDate, setCompleteModalDefaultDate] = useState<string | null>(null)
+  const [adminFiltersOpen, setAdminFiltersOpen] = useState(false)
+  const filterContainerRef = useRef<HTMLDivElement | null>(null)
 
   const userLogin = user?.username ?? ''
   const normalizedCollectorUsername = useMemo(() => userLogin.trim().toLowerCase(), [userLogin])
   const isCitizen = user?.role === 'basic'
   const isCollector = user?.role === 'collector'
+  const isAdmin = user?.role === 'admin'
 
   const activePickups = useMemo(
     () =>
@@ -196,6 +305,37 @@ function HomePage() {
 
   const modalPickupLabel = pickupToComplete ? formatDateLabel(pickupToComplete.scheduledAt) : null
 
+  useEffect(() => {
+    if (!adminFiltersOpen) return
+
+    const handleClick = (event: MouseEvent) => {
+      if (!filterContainerRef.current) return
+      if (!filterContainerRef.current.contains(event.target as Node)) {
+        setAdminFiltersOpen(false)
+      }
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setAdminFiltersOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClick)
+    document.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.removeEventListener('mousedown', handleClick)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [adminFiltersOpen])
+
+  useEffect(() => {
+    if (!isAdmin) {
+      setAdminFiltersOpen(false)
+    }
+  }, [isAdmin])
+
   const handleSelectCalendarDate = (date: Date) => {
     if (!isDateSelectable(date, today)) return
     setSelectedDate(toDateInputValue(date))
@@ -209,18 +349,35 @@ function HomePage() {
     }
 
     const scheduledAt = buildScheduledIso(values.date, values.timeSlot)
+    const scheduledDate = new Date(scheduledAt)
+
+    const validation = validateSchedulingRules({
+      values,
+      scheduledDate,
+      existingPickups: pickups,
+      requestedBy: user?.displayName ?? 'Ciudadano',
+      rules: frequencyRules,
+    })
+
+    if (!validation.valid) {
+      window.alert(validation.message)
+      return
+    }
+
     const newPickup: Pickup = {
       id: `pk-${Date.now()}`,
       scheduledAt,
       status: 'pending',
       staff: null,
+      staffUsername: null,
+      requestedBy: user?.displayName ?? 'Ciudadano',
       kind: values.kind,
       locality: values.locality,
       address: values.address,
       timeSlot: values.timeSlot,
     }
 
-    setPickups((current) => [...current, newPickup])
+    addPickup(newPickup)
     setScheduleModalOpen(false)
     setSelectedDate(null)
   }
@@ -233,21 +390,30 @@ function HomePage() {
     }
 
     const scheduledAt = buildScheduledIso(values.date, values.timeSlot)
+    const scheduledDate = new Date(scheduledAt)
 
-    setPickups((current) =>
-      current.map((pickup) =>
-        pickup.id === editingPickup.id
-          ? {
-              ...pickup,
-              scheduledAt,
-              kind: values.kind,
-              locality: values.locality,
-              address: values.address,
-              timeSlot: values.timeSlot,
-            }
-          : pickup,
-      ),
-    )
+    const validation = validateSchedulingRules({
+      values,
+      scheduledDate,
+      existingPickups: pickups,
+      requestedBy: editingPickup.requestedBy ?? user?.displayName ?? 'Ciudadano',
+      rules: frequencyRules,
+      ignorePickupId: editingPickup.id,
+    })
+
+    if (!validation.valid) {
+      window.alert(validation.message)
+      return
+    }
+
+    updatePickup(editingPickup.id, (pickup) => ({
+      ...pickup,
+      scheduledAt,
+      kind: values.kind,
+      locality: values.locality,
+      address: values.address,
+      timeSlot: values.timeSlot,
+    }))
 
     setEditModalOpen(false)
     setEditingPickup(null)
@@ -262,9 +428,7 @@ function HomePage() {
     const shouldDelete = window.confirm('¿Deseas eliminar esta recolección del listado?')
     if (!shouldDelete) return
 
-    setPickups((current) =>
-      current.map((item) => (item.id === pickup.id ? { ...item, archived: true } : item)),
-    )
+    updatePickup(pickup.id, (item) => ({ ...item, archived: true }))
   }
 
   const handleOpenCompleteModal = (pickup: Pickup) => {
@@ -287,21 +451,284 @@ function HomePage() {
 
     const completedAtIso = isoFromDateTimeLocal(values.completedAt)
 
-    setPickups((current) =>
-      current.map((pickup) =>
-        pickup.id === pickupToComplete.id
-          ? {
-              ...pickup,
-              scheduledAt: completedAtIso,
-              status: 'completed',
-              collectedWeightKg: values.collectedWeightKg,
-            }
-          : pickup,
-      ),
-    )
+    updatePickup(pickupToComplete.id, (pickup) => ({
+      ...pickup,
+      scheduledAt: completedAtIso,
+      status: 'completed',
+      collectedWeightKg: values.collectedWeightKg,
+    }))
 
     handleCloseCompleteModal()
   }
+
+  const renderPickupCard = (pickup: Pickup, options?: { showRequestedBy?: boolean }) => {
+    const status = statusStyles[pickup.status]
+    let staffDisplay = '—'
+    if (pickup.status === 'pending') {
+      staffDisplay = 'Por confirmar'
+    } else if (pickup.status === 'confirmed') {
+      staffDisplay = pickup.staff ?? 'Asignación pendiente'
+    } else if (pickup.status === 'completed') {
+      staffDisplay = pickup.staff ?? 'Equipo de recolección'
+    }
+    const dateLabel = formatDateLabel(pickup.scheduledAt)
+    const showRequestedBy = options?.showRequestedBy ?? false
+    const requesterLabel = pickup.requestedBy ?? '—'
+    const points = calculatePickupPoints(pickup, pointsFormula)
+
+    return (
+      <article
+        key={pickup.id}
+        className={`rounded-xl border px-5 py-4 shadow-sm shadow-slate-950/30 transition hover:shadow-lg ${status.card}`}
+      >
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-2xl font-semibold tracking-tight text-slate-100">
+              <span className="hidden lg:inline">{dateLabel.full}</span>
+              <span className="inline lg:hidden">{dateLabel.short}</span>
+            </p>
+            <p className="mt-1 text-sm font-medium text-slate-300">
+              {getRemainingDaysLabel(pickup.scheduledAt)}
+            </p>
+          </div>
+          <div className="flex flex-col items-end gap-2 text-xs">
+            <span className="inline-flex items-center gap-2 rounded-full border border-amber-400/40 bg-amber-500/10 px-3 py-1 font-semibold uppercase tracking-[0.2em] text-amber-200">
+              {points} pts
+            </span>
+            <span
+              className={`inline-flex items-center rounded-full border px-3 py-1 font-semibold uppercase tracking-[0.2em] ${status.chip}`}
+            >
+              {status.label}
+            </span>
+          </div>
+        </div>
+
+        <dl className="mt-4 grid gap-4 text-sm text-slate-200 md:grid-cols-2">
+          <div>
+            <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Staff</dt>
+            <dd className="mt-1 font-medium text-slate-100">{staffDisplay}</dd>
+          </div>
+          <div>
+            <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Tipo</dt>
+            <dd className="mt-1 font-medium text-slate-100">{kindLabels[pickup.kind]}</dd>
+          </div>
+          {showRequestedBy && (
+            <div>
+              <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Solicitado por</dt>
+              <dd className="mt-1 font-medium text-slate-100">{requesterLabel}</dd>
+            </div>
+          )}
+          <div>
+            <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Localidad</dt>
+            <dd className="mt-1 font-medium text-slate-100">{pickup.locality}</dd>
+          </div>
+          <div>
+            <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Dirección</dt>
+            <dd className="mt-1 font-medium text-slate-100">{pickup.address}</dd>
+          </div>
+          <div>
+            <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Horario</dt>
+            <dd className="mt-1 font-medium text-slate-100">{pickup.timeSlot}</dd>
+          </div>
+          {pickup.collectedWeightKg != null && (
+            <div>
+              <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Peso registrado</dt>
+              <dd className="mt-1 font-medium text-slate-100">{pickup.collectedWeightKg} kg</dd>
+            </div>
+          )}
+        </dl>
+
+        <div className="mt-5 flex flex-wrap justify-end gap-3 text-xs font-medium">
+          <button
+            type="button"
+            onClick={() => handleEditClick(pickup)}
+            className="inline-flex items-center rounded-md border border-slate-700/70 px-3 py-2 text-slate-200 transition hover:border-cyan-400/70 hover:text-cyan-200"
+          >
+            Editar
+          </button>
+          <button
+            type="button"
+            onClick={() => handleDeletePickup(pickup)}
+            className="inline-flex items-center rounded-md border border-red-500/40 px-3 py-2 text-red-200 transition hover:border-red-400 hover:text-red-100"
+          >
+            Eliminar
+          </button>
+        </div>
+      </article>
+    )
+  }
+
+  const scheduleInitialDate = selectedDate && isDateInputAfter(selectedDate, today) ? selectedDate : minDateInput
+
+  const scheduleInitialValues = {
+    date: scheduleInitialDate,
+    timeSlot: '08:00 - 12:00' as PickupTimeSlot,
+    kind: 'organico' as PickupKind,
+    locality: '',
+    address: '',
+  }
+
+  const editInitialValues = editingPickup
+    ? (() => {
+        const dateString = extractDateKey(editingPickup.scheduledAt)
+        const safeDate = isDateInputAfter(dateString, today) ? dateString : minDateInput
+        return {
+          date: safeDate,
+          timeSlot: editingPickup.timeSlot,
+          kind: editingPickup.kind,
+          locality: editingPickup.locality,
+          address: editingPickup.address,
+        }
+      })()
+    : null
+
+  const scheduleModals = (
+    <>
+      <Modal
+        open={isScheduleModalOpen}
+        onClose={() => {
+          setScheduleModalOpen(false)
+          setSelectedDate(null)
+        }}
+        title="Programar recolección"
+      >
+        <PickupForm
+          mode="create"
+          initialValue={scheduleInitialValues}
+          minDate={minDateInput}
+          onSubmit={handleCreatePickup}
+          onCancel={() => {
+            setScheduleModalOpen(false)
+            setSelectedDate(null)
+          }}
+        />
+      </Modal>
+
+      <Modal
+        open={isEditModalOpen && Boolean(editInitialValues)}
+        onClose={() => {
+          setEditModalOpen(false)
+          setEditingPickup(null)
+        }}
+        title="Editar recolección"
+      >
+        {editInitialValues && (
+          <PickupForm
+            mode="edit"
+            initialValue={editInitialValues}
+            minDate={minDateInput}
+            onSubmit={handleEditPickup}
+            onCancel={() => {
+              setEditModalOpen(false)
+              setEditingPickup(null)
+            }}
+          />
+        )}
+      </Modal>
+    </>
+  )
+
+  const citizenHeaderActions = (
+    <>
+      <span className="inline-flex items-center gap-2 rounded-full border border-amber-400/50 bg-amber-500/15 px-3 py-1 text-xs font-semibold text-amber-200">
+        <TrophyIcon className="h-4 w-4 text-amber-300" />
+        {userPoints} pts
+      </span>
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 rounded-full border border-slate-700/70 bg-slate-900/70 px-3 py-2 font-medium text-slate-300 transition hover:border-cyan-400/70 hover:text-cyan-200"
+      >
+        Filtrar por tipo
+      </button>
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 rounded-full border border-slate-700/70 bg-slate-900/70 px-3 py-2 font-medium text-slate-300 transition hover:border-cyan-400/70 hover:text-cyan-200"
+      >
+        Ordenar por fecha
+      </button>
+    </>
+  )
+
+  const adminHeaderActions = (
+    <>
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 rounded-full border border-slate-700/70 bg-slate-900/70 px-3 py-2 font-medium text-slate-300 transition hover:border-cyan-400/70 hover:text-cyan-200"
+      >
+        Ordenar por fecha
+      </button>
+      <div className="relative" ref={filterContainerRef}>
+        <button
+          type="button"
+          onClick={() => setAdminFiltersOpen((value) => !value)}
+          aria-haspopup="dialog"
+          aria-expanded={adminFiltersOpen}
+          className="inline-flex items-center gap-2 rounded-full border border-slate-700/70 bg-slate-900/70 px-3 py-2 text-slate-200 transition hover:border-cyan-400/70 hover:text-cyan-200"
+        >
+          <FilterIcon className="h-4 w-4" />
+          <span className="hidden sm:inline">Filtros</span>
+        </button>
+        {adminFiltersOpen && (
+          <div className="absolute right-0 z-20 mt-2 w-64 rounded-lg border border-slate-700 bg-slate-900/95 p-4 text-sm shadow-xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Filtros disponibles</p>
+            <ul className="mt-3 space-y-2 text-slate-200">
+              <li className="flex items-center gap-2">
+                <UserFilterIcon className="h-4 w-4 text-cyan-300" />
+                <span>Por usuario</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <MapPinIcon className="h-4 w-4 text-cyan-300" />
+                <span>Por localidad</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <StatusIcon className="h-4 w-4 text-cyan-300" />
+                <span>Por estado</span>
+              </li>
+            </ul>
+            <p className="mt-3 text-xs text-slate-500">La lógica de filtrado se integrará próximamente.</p>
+          </div>
+        )}
+      </div>
+    </>
+  )
+
+  const renderPlannerLayout = (actions: ReactNode, pickupsToRender: Pickup[], emptyMessage: string, options?: { showRequestedBy?: boolean }) => (
+    <>
+      <section className="flex w-full flex-col gap-4 lg:w-1/2 xl:w-2/3">
+        <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/60">
+          <header className="flex flex-col gap-4 border-b border-slate-800 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-slate-100">Recolecciones programadas</h2>
+              <p className="text-sm text-slate-400">Organizadas de la más próxima a la más lejana.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              {actions}
+            </div>
+          </header>
+
+          <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5">
+            {pickupsToRender.map((pickup) => renderPickupCard(pickup, options))}
+
+            {pickupsToRender.length === 0 && (
+              <div className="rounded-xl border border-slate-800 bg-slate-900/50 px-5 py-6 text-sm text-slate-400">
+                {emptyMessage}
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <aside className="flex w-full flex-1 items-start justify-center rounded-2xl border border-slate-800 bg-slate-950/30 px-2 py-4 text-slate-500 lg:w-1/2 xl:w-1/3">
+        <MonthlyCalendar
+          month={monthCursor}
+          onMonthChange={setMonthCursor}
+          onSelectDate={handleSelectCalendarDate}
+          highlightedDates={highlightedDates}
+          isDateDisabled={(date) => !isDateSelectable(date, today)}
+        />
+      </aside>
+    </>
+  )
 
   if (isCollector) {
     const completedCount = collectorPickups.filter((pickup) => pickup.status === 'completed').length
@@ -327,6 +754,7 @@ function HomePage() {
               const dateLabel = formatDateLabel(pickup.scheduledAt)
               const canRegister = pickup.status !== 'completed' && pickup.status !== 'rejected'
               const weightDisplay = pickup.collectedWeightKg != null ? `${pickup.collectedWeightKg} kg` : '—'
+              const points = calculatePickupPoints(pickup, pointsFormula)
 
               return (
                 <article
@@ -341,11 +769,16 @@ function HomePage() {
                       </p>
                       <p className="mt-1 text-sm font-medium text-slate-300">{getRemainingDaysLabel(pickup.scheduledAt)}</p>
                     </div>
-                    <span
-                      className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] ${status.chip}`}
-                    >
-                      {status.label}
-                    </span>
+                    <div className="flex flex-col items-end gap-2 text-xs">
+                      <span className="inline-flex items-center gap-2 rounded-full border border-amber-400/40 bg-amber-500/10 px-3 py-1 font-semibold uppercase tracking-[0.2em] text-amber-200">
+                        {points} pts
+                      </span>
+                      <span
+                        className={`inline-flex items-center rounded-full border px-3 py-1 font-semibold uppercase tracking-[0.2em] ${status.chip}`}
+                      >
+                        {status.label}
+                      </span>
+                    </div>
                   </div>
 
                   <dl className="mt-4 grid gap-4 text-sm text-slate-200 md:grid-cols-2">
@@ -361,6 +794,12 @@ function HomePage() {
                       <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Tipo</dt>
                       <dd className="mt-1 font-medium text-slate-100">{kindLabels[pickup.kind]}</dd>
                     </div>
+                    {pickup.requestedBy && (
+                      <div>
+                        <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Solicitado por</dt>
+                        <dd className="mt-1 font-medium text-slate-100">{pickup.requestedBy}</dd>
+                      </div>
+                    )}
                     <div>
                       <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Horario</dt>
                       <dd className="mt-1 font-medium text-slate-100">{pickup.timeSlot}</dd>
@@ -429,210 +868,128 @@ function HomePage() {
     )
   }
 
+  if (isAdmin) {
+    return (
+      <div className="flex flex-1 flex-col gap-6 lg:min-h-[calc(100vh-14rem)] lg:flex-row lg:items-stretch">
+        {renderPlannerLayout(adminHeaderActions, activePickups, 'No hay recolecciones registradas en este momento.', { showRequestedBy: true })}
+        {scheduleModals}
+      </div>
+    )
+  }
+
   if (!isCitizen) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center rounded-2xl border border-slate-800 bg-slate-900/60 text-center text-slate-400">
         <p className="max-w-md">
-          Este panel está orientado a los roles ciudadano y recolector. Ingresa con un usuario compatible para ver su contenido.
+          Este panel está orientado a los roles ciudadano, administrador y recolector. Ingresa con un usuario compatible para ver su contenido.
         </p>
       </div>
     )
   }
 
-  const scheduleInitialDate = selectedDate && isDateInputAfter(selectedDate, today) ? selectedDate : minDateInput
-
-  const scheduleInitialValues = {
-    date: scheduleInitialDate,
-    timeSlot: '08:00 - 12:00' as PickupTimeSlot,
-    kind: 'organico' as PickupKind,
-    locality: '',
-    address: '',
-  }
-
-  const editInitialValues = editingPickup
-    ? (() => {
-        const dateString = extractDateKey(editingPickup.scheduledAt)
-        const safeDate = isDateInputAfter(dateString, today) ? dateString : minDateInput
-        return {
-          date: safeDate,
-          timeSlot: editingPickup.timeSlot,
-          kind: editingPickup.kind,
-          locality: editingPickup.locality,
-          address: editingPickup.address,
-        }
-      })()
-    : null
-
   return (
     <div className="flex flex-1 flex-col gap-6 lg:min-h-[calc(100vh-14rem)] lg:flex-row lg:items-stretch">
-      <section className="flex w-full flex-col gap-4 lg:w-1/2 xl:w-2/3">
-        <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/60">
-          <header className="flex flex-col gap-4 border-b border-slate-800 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-xl font-semibold text-slate-100">Recolecciones programadas</h2>
-              <p className="text-sm text-slate-400">Organizadas de la más próxima a la más lejana.</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <button
-                type="button"
-                className="inline-flex items-center gap-1 rounded-full border border-slate-700/70 bg-slate-900/70 px-3 py-2 font-medium text-slate-300 transition hover:border-cyan-400/70 hover:text-cyan-200"
-              >
-                Filtrar por tipo
-              </button>
-              <button
-                type="button"
-                className="inline-flex items-center gap-1 rounded-full border border-slate-700/70 bg-slate-900/70 px-3 py-2 font-medium text-slate-300 transition hover:border-cyan-400/70 hover:text-cyan-200"
-              >
-                Ordenar por fecha
-              </button>
-            </div>
-          </header>
-
-          <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5">
-            {activePickups.map((pickup) => {
-              const status = statusStyles[pickup.status]
-              let staffDisplay = '—'
-              if (pickup.status === 'pending') {
-                staffDisplay = 'Por confirmar'
-              } else if (pickup.status === 'confirmed') {
-                staffDisplay = pickup.staff ?? 'Asignación pendiente'
-              } else if (pickup.status === 'completed') {
-                staffDisplay = pickup.staff ?? 'Equipo de recolección'
-              }
-              const dateLabel = formatDateLabel(pickup.scheduledAt)
-
-              return (
-                <article
-                  key={pickup.id}
-                  className={`rounded-xl border px-5 py-4 shadow-sm shadow-slate-950/30 transition hover:shadow-lg ${status.card}`}
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div>
-                      <p className="text-2xl font-semibold tracking-tight text-slate-100">
-                        <span className="hidden lg:inline">{dateLabel.full}</span>
-                        <span className="inline lg:hidden">{dateLabel.short}</span>
-                      </p>
-                      <p className="mt-1 text-sm font-medium text-slate-300">
-                        {getRemainingDaysLabel(pickup.scheduledAt)}
-                      </p>
-                    </div>
-                    <span
-                      className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] ${status.chip}`}
-                    >
-                      {status.label}
-                    </span>
-                  </div>
-
-                  <dl className="mt-4 grid gap-4 text-sm text-slate-200 md:grid-cols-2">
-                    <div>
-                      <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Staff</dt>
-                      <dd className="mt-1 font-medium text-slate-100">{staffDisplay}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Tipo</dt>
-                      <dd className="mt-1 font-medium text-slate-100">{kindLabels[pickup.kind]}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Localidad</dt>
-                      <dd className="mt-1 font-medium text-slate-100">{pickup.locality}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Dirección</dt>
-                      <dd className="mt-1 font-medium text-slate-100">{pickup.address}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Horario</dt>
-                      <dd className="mt-1 font-medium text-slate-100">{pickup.timeSlot}</dd>
-                    </div>
-                    {pickup.collectedWeightKg != null && (
-                      <div>
-                        <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Peso registrado</dt>
-                        <dd className="mt-1 font-medium text-slate-100">{pickup.collectedWeightKg} kg</dd>
-                      </div>
-                    )}
-                  </dl>
-
-                  <div className="mt-5 flex flex-wrap justify-end gap-3 text-xs font-medium">
-                    <button
-                      type="button"
-                      onClick={() => handleEditClick(pickup)}
-                      className="inline-flex items-center rounded-md border border-slate-700/70 px-3 py-2 text-slate-200 transition hover:border-cyan-400/70 hover:text-cyan-200"
-                    >
-                      Editar
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeletePickup(pickup)}
-                      className="inline-flex items-center rounded-md border border-red-500/40 px-3 py-2 text-red-200 transition hover:border-red-400 hover:text-red-100"
-                    >
-                      Eliminar
-                    </button>
-                  </div>
-                </article>
-              )
-            })}
-
-            {activePickups.length === 0 && (
-              <div className="rounded-xl border border-slate-800 bg-slate-900/50 px-5 py-6 text-sm text-slate-400">
-                No tienes recolecciones activas. Programa una nueva usando el calendario.
-              </div>
-            )}
-          </div>
-        </div>
-      </section>
-
-      <aside className="flex w-full flex-1 items-start justify-center rounded-2xl border border-slate-800 bg-slate-950/30 px-2 py-4 text-slate-500 lg:w-1/2 xl:w-1/3">
-        <MonthlyCalendar
-          month={monthCursor}
-          onMonthChange={setMonthCursor}
-          onSelectDate={handleSelectCalendarDate}
-          highlightedDates={highlightedDates}
-          isDateDisabled={(date) => !isDateSelectable(date, today)}
-        />
-      </aside>
-
-      <Modal
-        open={isScheduleModalOpen}
-        onClose={() => {
-          setScheduleModalOpen(false)
-          setSelectedDate(null)
-        }}
-        title="Programar recolección"
-      >
-        <PickupForm
-          mode="create"
-          initialValue={scheduleInitialValues}
-          minDate={minDateInput}
-          onSubmit={handleCreatePickup}
-          onCancel={() => {
-            setScheduleModalOpen(false)
-            setSelectedDate(null)
-          }}
-        />
-      </Modal>
-
-      <Modal
-        open={isEditModalOpen && Boolean(editInitialValues)}
-        onClose={() => {
-          setEditModalOpen(false)
-          setEditingPickup(null)
-        }}
-        title="Editar recolección"
-      >
-        {editInitialValues && (
-          <PickupForm
-            mode="edit"
-            initialValue={editInitialValues}
-            minDate={minDateInput}
-            onSubmit={handleEditPickup}
-            onCancel={() => {
-              setEditModalOpen(false)
-              setEditingPickup(null)
-            }}
-          />
-        )}
-      </Modal>
+      {renderPlannerLayout(
+        citizenHeaderActions,
+        activePickups,
+        'No tienes recolecciones activas. Programa una nueva usando el calendario.',
+      )}
+      {scheduleModals}
     </div>
+  )
+}
+
+function TrophyIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M8 21h8" />
+      <path d="M12 17a4 4 0 0 0 4-4V3H8v10a4 4 0 0 0 4 4z" />
+      <path d="M5 5H3a2 2 0 0 0 2 2h1V5z" />
+      <path d="M19 5h2a2 2 0 0 1-2 2h-1V5z" />
+    </svg>
+  )
+}
+
+function FilterIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M4 4h16l-6 7v7l-4-2v-5z" />
+    </svg>
+  )
+}
+
+function UserFilterIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+    </svg>
+  )
+}
+
+function MapPinIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M21 10c0 6-9 13-9 13S3 16 3 10a9 9 0 1 1 18 0z" />
+      <circle cx="12" cy="10" r="3" />
+    </svg>
+  )
+}
+
+function StatusIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M12 2v20" />
+      <path d="M5 6h7" />
+      <path d="M5 12h7" />
+      <path d="M5 18h7" />
+      <path d="M15 10h4v4h-4z" />
+    </svg>
   )
 }
 
