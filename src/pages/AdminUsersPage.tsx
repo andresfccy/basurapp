@@ -3,40 +3,14 @@ import { useMemo } from 'react'
 import { useConfig } from '../config/config-context'
 import { usePickups } from '../pickups/pickups-context'
 import { calculateUserPoints } from '../utils/points'
-
-const baseCitizenUsers = [
-  {
-    id: 'usr-1001',
-    name: 'Andrea Morales',
-    email: 'andrea.morales@example.com',
-    phone: '+57 300 123 4567',
-    status: 'Activo',
-    createdAt: '2025-03-14',
-  },
-  {
-    id: 'usr-1002',
-    name: 'Santiago Ruiz',
-    email: 'santiago.ruiz@basurapp.com',
-    phone: '+57 311 987 6543',
-    status: 'Pendiente',
-    createdAt: '2025-04-02',
-  },
-  {
-    id: 'usr-1003',
-    name: 'Laura García',
-    email: 'laura.garcia@basurapp.com',
-    phone: '+57 312 555 0199',
-    status: 'Deshabilitado',
-    createdAt: '2025-02-28',
-  },
-]
+import { citizenUsers } from '../data/users'
 
 function AdminUsersPage() {
   const { pickups } = usePickups()
   const { pointsFormula } = useConfig()
 
   const users = useMemo(() =>
-    baseCitizenUsers.map((user) => ({
+    citizenUsers.map((user) => ({
       ...user,
       points: calculateUserPoints(pickups, user.name, pointsFormula),
     })),

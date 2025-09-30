@@ -1,35 +1,4 @@
-const mockCollectors = [
-  {
-    id: 'col-5001',
-    name: 'Laura García',
-    email: 'laura.garcia@basurapp.com',
-    phone: '+57 312 555 0199',
-    assignedZones: ['Chapinero', 'Fontibón'],
-    activeRoutes: 8,
-    status: 'Activo',
-    lastCheckIn: '2025-09-10 08:45',
-  },
-  {
-    id: 'col-5002',
-    name: 'Carlos López',
-    email: 'carlos.lopez@basurapp.com',
-    phone: '+57 310 777 1188',
-    assignedZones: ['Suba'],
-    activeRoutes: 5,
-    status: 'De vacaciones',
-    lastCheckIn: '2025-09-01 18:05',
-  },
-  {
-    id: 'col-5003',
-    name: 'Valentina Rojas',
-    email: 'valentina.rojas@basurapp.com',
-    phone: '+57 301 444 3355',
-    assignedZones: ['Engativá', 'Kennedy'],
-    activeRoutes: 10,
-    status: 'Deshabilitado',
-    lastCheckIn: '2025-08-22 17:20',
-  },
-]
+import { collectors } from '../data/users'
 
 function AdminCollectorsPage() {
   return (
@@ -62,6 +31,7 @@ function AdminCollectorsPage() {
               <tr>
                 <th className="px-6 py-3">ID</th>
                 <th className="px-6 py-3">Recolector</th>
+                <th className="px-6 py-3">Empresa</th>
                 <th className="px-6 py-3">Contacto</th>
                 <th className="px-6 py-3">Zonas</th>
                 <th className="px-6 py-3">Rutas activas</th>
@@ -71,10 +41,11 @@ function AdminCollectorsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
-              {mockCollectors.map((collector) => (
+              {collectors.map((collector) => (
                 <tr key={collector.id} className="hover:bg-slate-900/60">
                   <td className="px-6 py-3 font-mono text-xs text-slate-400">{collector.id}</td>
                   <td className="px-6 py-3 font-medium text-slate-100">{collector.name}</td>
+                  <td className="px-6 py-3 text-slate-300">{collector.companyName}</td>
                   <td className="px-6 py-3 text-slate-300">
                     <div className="flex flex-col">
                       <span>{collector.email}</span>

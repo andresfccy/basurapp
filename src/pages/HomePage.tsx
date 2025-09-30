@@ -10,6 +10,7 @@ import { usePickups } from '../pickups/pickups-context'
 import CompletePickupForm from '../components/pickups/CompletePickupForm'
 import Modal from '../components/shared/Modal'
 import { calculatePickupPoints } from '../utils/points'
+import { collectors } from '../data/users'
 import {
   type Pickup,
   type PickupKind,
@@ -166,6 +167,8 @@ const WEEKDAY_LABELS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'v
 function getWeekdayLabel(index: number) {
   return WEEKDAY_LABELS[(index % 7 + 7) % 7]
 }
+
+const collectorsByName = new Map(collectors.map((entry) => [entry.name, entry]))
 
 type SchedulingValidationParams = {
   values: PickupFormValues
@@ -462,13 +465,18 @@ function HomePage() {
 
   const renderPickupCard = (pickup: Pickup, options?: { showRequestedBy?: boolean }) => {
     const status = statusStyles[pickup.status]
-    let staffDisplay = '—'
+    let staffLabel = '—'
+    let companyLabel: string | null = null
+
     if (pickup.status === 'pending') {
-      staffDisplay = 'Por confirmar'
+      staffLabel = 'Por confirmar'
+    } else if (pickup.staff) {
+      staffLabel = pickup.staff
+      companyLabel = collectorsByName.get(pickup.staff)?.companyName ?? null
     } else if (pickup.status === 'confirmed') {
-      staffDisplay = pickup.staff ?? 'Asignación pendiente'
+      staffLabel = 'Asignación pendiente'
     } else if (pickup.status === 'completed') {
-      staffDisplay = pickup.staff ?? 'Equipo de recolección'
+      staffLabel = 'Equipo de recolección'
     }
     const dateLabel = formatDateLabel(pickup.scheduledAt)
     const showRequestedBy = options?.showRequestedBy ?? false
@@ -505,7 +513,12 @@ function HomePage() {
         <dl className="mt-4 grid gap-4 text-sm text-slate-200 md:grid-cols-2">
           <div>
             <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Staff</dt>
-            <dd className="mt-1 font-medium text-slate-100">{staffDisplay}</dd>
+            <dd className="mt-1 font-medium text-slate-100">
+              <span>{staffLabel}</span>
+              {companyLabel && (
+                <span className="mt-1 block text-xs font-normal text-slate-400">{companyLabel}</span>
+              )}
+            </dd>
           </div>
           <div>
             <dt className="text-xs uppercase tracking-[0.3em] text-slate-500">Tipo</dt>
