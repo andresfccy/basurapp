@@ -12,7 +12,6 @@ function RegisterPage() {
     lastName: '',
     phone: '',
     password: '',
-    role: 'basic',
   });
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -146,24 +145,6 @@ function RegisterPage() {
               className="mt-2 w-full rounded-md border border-slate-700/60 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none ring-2 ring-transparent transition focus:border-cyan-500/70 focus:ring-cyan-500/20"
               placeholder="+57 300 123 4567"
             />
-          </div>
-
-          <div className="mt-4">
-            <label htmlFor="role" className="text-sm font-medium text-slate-300">
-              Tipo de usuario
-            </label>
-            <select
-              id="role"
-              name="role"
-              required
-              value={formData.role}
-              onChange={handleChange}
-              className="mt-2 w-full rounded-md border border-slate-700/60 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none ring-2 ring-transparent transition focus:border-cyan-500/70 focus:ring-cyan-500/20"
-            >
-              <option value="basic">Ciudadano</option>
-              <option value="collector">Recolector</option>
-              <option value="admin">Administrador</option>
-            </select>
           </div>
 
           <div className="mt-4">

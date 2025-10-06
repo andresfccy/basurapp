@@ -6,7 +6,6 @@ export interface RegisterUserData {
   lastName: string;
   phone: string;
   password: string;
-  role: 'basic' | 'admin' | 'collector';
 }
 
 export interface RegisterResponse {
