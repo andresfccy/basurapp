@@ -4,6 +4,8 @@ import { useAuth } from './auth/auth-context'
 import DashboardLayout from './components/layout/DashboardLayout'
 import HomePage from './pages/HomePage'
 import LoginPage from './pages/LoginPage'
+import RegisterPage from './pages/RegisterPage'
+import ConfirmEmailPage from './pages/ConfirmEmailPage'
 import AdminCollectorsPage from './pages/AdminCollectorsPage'
 import AdminOverviewPage from './pages/AdminOverviewPage'
 import AdminUsersPage from './pages/AdminUsersPage'
@@ -28,6 +30,8 @@ function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<RegisterPage />} />
+      <Route path="/confirm-email" element={<ConfirmEmailPage />} />
       <Route
         path="/"
         element={

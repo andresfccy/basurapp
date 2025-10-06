@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 
 import { authPresets, getRoleLabel, useAuth } from '../auth/auth-context'
 
@@ -116,6 +116,13 @@ function LoginPage() {
             >
               Iniciar sesión
             </button>
+
+            <p className="mt-4 text-center text-sm text-slate-400">
+              ¿No tienes cuenta?{' '}
+              <Link to="/register" className="text-cyan-400 hover:text-cyan-300">
+                Regístrate aquí
+              </Link>
+            </p>
           </form>
         </div>
       </div>
