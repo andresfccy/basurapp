@@ -48,7 +48,7 @@ function PickupForm({ mode, initialValue, minDate, onSubmit, onCancel }: PickupF
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    onSubmit(formValues)
+    void onSubmit(formValues)
   }
 
   return (

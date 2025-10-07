@@ -4,11 +4,13 @@ import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 
 import { useAuth } from '../auth/auth-context'
 import { apiService } from '../services/api'
+import { useNotifications } from '../notifications/notification-context'
 
 function LoginPage() {
   const { user, login } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+  const { notifyError, notifySuccess } = useNotifications()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -36,6 +38,7 @@ function LoginPage() {
       if (!result.success) {
         const errorMessage = result.message ?? 'Error al iniciar sesión'
         setError(errorMessage)
+        notifyError(errorMessage)
 
         // Mostrar opción de reenvío si el usuario no está verificado
         if (errorMessage.includes('verificad') || errorMessage.includes('verifica')) {
@@ -44,9 +47,11 @@ function LoginPage() {
         return
       }
 
+      notifySuccess('Sesión iniciada correctamente.')
       void navigate(from, { replace: true })
     } catch (error) {
       setError('Error al iniciar sesión. Por favor intenta de nuevo.')
+      notifyError('Error al iniciar sesión. Por favor intenta de nuevo.')
     } finally {
       setIsLoading(false)
     }
@@ -61,8 +66,11 @@ function LoginPage() {
       await apiService.resendVerification({ email })
       setResendSuccess(true)
       setShowResendOption(false)
+      notifySuccess('Código de verificación reenviado. Revisa tu correo.')
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Error al reenviar el código')
+      const message = error instanceof Error ? error.message : 'Error al reenviar el código'
+      notifyError(message)
     } finally {
       setIsResending(false)
     }
@@ -81,7 +89,9 @@ function LoginPage() {
 
         <div className="flex flex-1 flex-col justify-center">
           <form
-            onSubmit={handleSubmit}
+            onSubmit={(event) => {
+              void handleSubmit(event)
+            }}
             className="rounded-2xl border border-slate-800 bg-slate-900/70 p-8 shadow-xl shadow-slate-950/40"
           >
             <div>
@@ -125,7 +135,9 @@ function LoginPage() {
                 {showResendOption && (
                   <button
                     type="button"
-                    onClick={handleResendCode}
+                    onClick={() => {
+                      void handleResendCode()
+                    }}
                     disabled={isResending}
                     className="w-full rounded-md border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-sm font-medium text-cyan-200 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-50"
                   >

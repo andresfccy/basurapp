@@ -33,12 +33,12 @@ function CompletePickupForm({ pickup, defaultDateTime, onSubmit, onCancel }: Com
         return
       }
       setError(null)
-      onSubmit({ completedAt, collectedWeightKg: weightValue })
+      void onSubmit({ completedAt, collectedWeightKg: weightValue })
       return
     }
 
     setError(null)
-    onSubmit({ completedAt, collectedWeightKg: null })
+    void onSubmit({ completedAt, collectedWeightKg: null })
   }
 
   return (

@@ -1,4 +1,6 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+import type { Pickup, PickupKind, PickupTimeSlot } from '../data/pickups';
+
+const API_BASE_URL = (import.meta.env.VITE_API_URL ?? '').trim() || 'http://localhost:3000';
 
 export interface RegisterUserData {
   email: string;
@@ -53,6 +55,21 @@ export interface LoginResponse {
   };
 }
 
+export interface SchedulePickupData {
+  scheduledAt: string;
+  kind: PickupKind;
+  locality: string;
+  address: string;
+  timeSlot: PickupTimeSlot;
+}
+
+export interface UpdatePickupData extends SchedulePickupData {}
+
+export interface CompletePickupData {
+  completedAt: string;
+  collectedWeightKg?: number | null;
+}
+
 class ApiService {
   private getAuthToken(): string | null {
     if (typeof window === 'undefined') return null;
@@ -86,7 +103,7 @@ class ApiService {
         },
       });
 
-      const data = await response.json();
+      const data: unknown = await response.json();
 
       if (!response.ok) {
         const error = data as ApiError;
@@ -129,6 +146,47 @@ class ApiService {
     this.setAuthToken(response.accessToken);
 
     return response;
+  }
+
+  async getPickups(): Promise<Pickup[]> {
+    return this.request<Pickup[]>('/pickups', {
+      method: 'GET',
+    });
+  }
+
+  async createPickup(data: SchedulePickupData): Promise<Pickup> {
+    return this.request<Pickup>('/pickups', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updatePickup(id: string, data: UpdatePickupData): Promise<Pickup> {
+    return this.request<Pickup>(`/pickups/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async archivePickup(id: string): Promise<Pickup> {
+    return this.request<Pickup>(`/pickups/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async completePickup(id: string, data: CompletePickupData): Promise<Pickup> {
+    const payload =
+      data.collectedWeightKg === undefined || data.collectedWeightKg === null
+        ? { completedAt: data.completedAt }
+        : {
+            completedAt: data.completedAt,
+            collectedWeightKg: data.collectedWeightKg,
+          };
+
+    return this.request<Pickup>(`/pickups/${id}/complete`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
   }
 
   async logout(): Promise<void> {

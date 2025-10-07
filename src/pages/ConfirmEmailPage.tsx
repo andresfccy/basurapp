@@ -2,11 +2,13 @@ import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { apiService } from '../services/api';
+import { useNotifications } from '../notifications/notification-context';
 
 function ConfirmEmailPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const state = location.state as { email?: string; message?: string } | null;
+  const { notifyError, notifySuccess } = useNotifications();
 
   const [email, setEmail] = useState(state?.email || '');
   const [verificationCode, setVerificationCode] = useState('');
@@ -32,15 +34,18 @@ function ConfirmEmailPage() {
       });
 
       setSuccess(true);
+      notifySuccess(response.message);
 
       // Redirigir al login después de 2 segundos
       setTimeout(() => {
-        navigate('/login', {
+        void navigate('/login', {
           state: { message: response.message },
         });
       }, 2000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al verificar el código');
+      const message = err instanceof Error ? err.message : 'Error al verificar el código';
+      setError(message);
+      notifyError(message);
     } finally {
       setLoading(false);
     }
@@ -88,7 +93,9 @@ function ConfirmEmailPage() {
           </div>
         ) : (
           <form
-            onSubmit={handleSubmit}
+            onSubmit={(event) => {
+              void handleSubmit(event);
+            }}
             className="rounded-2xl border border-slate-800 bg-slate-900/70 p-8 shadow-xl shadow-slate-950/40"
           >
             <div>

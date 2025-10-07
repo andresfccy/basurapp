@@ -11,6 +11,7 @@ export type AuthenticatedUser = {
   displayName: string
   firstName: string
   lastName: string
+  username: string
 }
 
 type LoginPayload = {
@@ -33,7 +34,20 @@ function getStoredUser(): AuthenticatedUser | null {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
-    return JSON.parse(raw) as AuthenticatedUser
+    const parsed = JSON.parse(raw) as Partial<AuthenticatedUser> & { email: string }
+    if (!parsed.id) return null
+    const firstName = parsed.firstName ?? ''
+    const lastName = parsed.lastName ?? ''
+    const fallbackDisplayName = `${firstName} ${lastName}`.trim() || parsed.email
+    return {
+      id: parsed.id,
+      email: parsed.email,
+      role: (parsed.role as Role) ?? 'basic',
+      firstName,
+      lastName,
+      displayName: parsed.displayName ?? fallbackDisplayName,
+      username: parsed.username ?? parsed.email,
+    }
   } catch (error) {
     console.warn('No se pudo leer el usuario almacenado', error)
     return null
@@ -65,7 +79,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         firstName: response.user.firstName,
         lastName: response.user.lastName,
         role: response.user.role as Role,
-        displayName: `${response.user.firstName} ${response.user.lastName}`,
+        displayName: `${response.user.firstName} ${response.user.lastName}`.trim() || response.user.email,
+        username: response.user.email,
       }
 
       setUser(authenticatedUser)

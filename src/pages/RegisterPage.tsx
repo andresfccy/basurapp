@@ -3,9 +3,11 @@ import type { FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { apiService } from '../services/api';
 import type { RegisterUserData } from '../services/api';
+import { useNotifications } from '../notifications/notification-context';
 
 function RegisterPage() {
   const navigate = useNavigate();
+  const { notifyError, notifySuccess } = useNotifications();
   const [formData, setFormData] = useState<RegisterUserData>({
     email: '',
     firstName: '',
@@ -36,16 +38,19 @@ function RegisterPage() {
 
     try {
       const response = await apiService.registerUser(formData);
+      notifySuccess(response.message);
 
       // Redirigir a la página de confirmación con el email
-      navigate('/confirm-email', {
+      void navigate('/confirm-email', {
         state: {
           email: formData.email,
           message: response.message,
         },
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al registrar usuario');
+      const message = err instanceof Error ? err.message : 'Error al registrar usuario';
+      setError(message);
+      notifyError(message);
     } finally {
       setLoading(false);
     }
@@ -77,7 +82,9 @@ function RegisterPage() {
         </div>
 
         <form
-          onSubmit={handleSubmit}
+          onSubmit={(event) => {
+            void handleSubmit(event);
+          }}
           className="rounded-2xl border border-slate-800 bg-slate-900/70 p-8 shadow-xl shadow-slate-950/40"
         >
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

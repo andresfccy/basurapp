@@ -255,7 +255,13 @@ function validateSchedulingRules({ values, scheduledDate, existingPickups, reque
 function HomePage() {
   const { user } = useAuth()
   const { pointsFormula, frequencyRules } = useConfig()
-  const { pickups, addPickup, updatePickup } = usePickups()
+  const {
+    pickups,
+    schedulePickup,
+    updatePickup: updatePickupRequest,
+    archivePickup: archivePickupRequest,
+    completePickup: completePickupRequest,
+  } = usePickups()
   const today = useMemo(() => startOfDay(new Date()), [])
   const tomorrow = useMemo(() => {
     const next = new Date(today)
@@ -344,7 +350,7 @@ function HomePage() {
     setScheduleModalOpen(true)
   }
 
-  const handleCreatePickup = (values: PickupFormValues) => {
+  const handleCreatePickup = async (values: PickupFormValues) => {
     if (!isDateInputAfter(values.date, today)) {
       window.alert('Selecciona una fecha posterior a hoy.')
       return
@@ -366,25 +372,22 @@ function HomePage() {
       return
     }
 
-    const newPickup: Pickup = {
-      id: `pk-${Date.now()}`,
-      scheduledAt,
-      status: 'pending',
-      staff: null,
-      staffUsername: null,
-      requestedBy: user?.displayName ?? 'Ciudadano',
-      kind: values.kind,
-      locality: values.locality,
-      address: values.address,
-      timeSlot: values.timeSlot,
+    try {
+      await schedulePickup({
+        scheduledAt,
+        kind: values.kind,
+        locality: values.locality,
+        address: values.address,
+        timeSlot: values.timeSlot,
+      })
+      setScheduleModalOpen(false)
+      setSelectedDate(null)
+    } catch (error) {
+      console.error('Error al programar recolección', error)
     }
-
-    addPickup(newPickup)
-    setScheduleModalOpen(false)
-    setSelectedDate(null)
   }
 
-  const handleEditPickup = (values: PickupFormValues) => {
+  const handleEditPickup = async (values: PickupFormValues) => {
     if (!editingPickup) return
     if (!isDateInputAfter(values.date, today)) {
       window.alert('Selecciona una fecha posterior a hoy.')
@@ -408,17 +411,19 @@ function HomePage() {
       return
     }
 
-    updatePickup(editingPickup.id, (pickup) => ({
-      ...pickup,
-      scheduledAt,
-      kind: values.kind,
-      locality: values.locality,
-      address: values.address,
-      timeSlot: values.timeSlot,
-    }))
-
-    setEditModalOpen(false)
-    setEditingPickup(null)
+    try {
+      await updatePickupRequest(editingPickup.id, {
+        scheduledAt,
+        kind: values.kind,
+        locality: values.locality,
+        address: values.address,
+        timeSlot: values.timeSlot,
+      })
+      setEditModalOpen(false)
+      setEditingPickup(null)
+    } catch (error) {
+      console.error('Error al actualizar recolección', error)
+    }
   }
 
   const handleEditClick = (pickup: Pickup) => {
@@ -426,11 +431,15 @@ function HomePage() {
     setEditModalOpen(true)
   }
 
-  const handleDeletePickup = (pickup: Pickup) => {
+  const handleDeletePickup = async (pickup: Pickup) => {
     const shouldDelete = window.confirm('¿Deseas eliminar esta recolección del listado?')
     if (!shouldDelete) return
 
-    updatePickup(pickup.id, (item) => ({ ...item, archived: true }))
+    try {
+      await archivePickupRequest(pickup.id)
+    } catch (error) {
+      console.error('Error al eliminar recolección', error)
+    }
   }
 
   const handleOpenCompleteModal = (pickup: Pickup) => {
@@ -443,7 +452,7 @@ function HomePage() {
     setCompleteModalDefaultDate(null)
   }
 
-  const handleCompletePickup = (values: { completedAt: string; collectedWeightKg: number | null }) => {
+  const handleCompletePickup = async (values: { completedAt: string; collectedWeightKg: number | null }) => {
     if (!pickupToComplete) return
 
     if (new Date(values.completedAt) > new Date()) {
@@ -453,14 +462,15 @@ function HomePage() {
 
     const completedAtIso = isoFromDateTimeLocal(values.completedAt)
 
-    updatePickup(pickupToComplete.id, (pickup) => ({
-      ...pickup,
-      scheduledAt: completedAtIso,
-      status: 'completed',
-      collectedWeightKg: values.collectedWeightKg,
-    }))
-
-    handleCloseCompleteModal()
+    try {
+      await completePickupRequest(pickupToComplete.id, {
+        completedAt: completedAtIso,
+        collectedWeightKg: values.collectedWeightKg ?? undefined,
+      })
+      handleCloseCompleteModal()
+    } catch (error) {
+      console.error('Error al completar recolección', error)
+    }
   }
 
   const renderPickupCard = (pickup: Pickup, options?: { showRequestedBy?: boolean }) => {
@@ -560,7 +570,9 @@ function HomePage() {
           </button>
           <button
             type="button"
-            onClick={() => handleDeletePickup(pickup)}
+                    onClick={() => {
+                      void handleDeletePickup(pickup)
+                    }}
             className="inline-flex items-center rounded-md border border-red-500/40 px-3 py-2 text-red-200 transition hover:border-red-400 hover:text-red-100"
           >
             Eliminar
@@ -608,7 +620,9 @@ function HomePage() {
           mode="create"
           initialValue={scheduleInitialValues}
           minDate={minDateInput}
-          onSubmit={handleCreatePickup}
+          onSubmit={(values) => {
+            void handleCreatePickup(values)
+          }}
           onCancel={() => {
             setScheduleModalOpen(false)
             setSelectedDate(null)
@@ -629,7 +643,9 @@ function HomePage() {
             mode="edit"
             initialValue={editInitialValues}
             minDate={minDateInput}
-            onSubmit={handleEditPickup}
+            onSubmit={(values) => {
+              void handleEditPickup(values)
+            }}
             onCancel={() => {
               setEditModalOpen(false)
               setEditingPickup(null)
@@ -866,7 +882,9 @@ function HomePage() {
               <CompletePickupForm
                 pickup={pickupToComplete}
                 defaultDateTime={completeModalDefaultDate ?? toDateTimeLocalValue(new Date())}
-                onSubmit={handleCompletePickup}
+                onSubmit={(values) => {
+                  void handleCompletePickup(values)
+                }}
                 onCancel={handleCloseCompleteModal}
               />
             </div>
