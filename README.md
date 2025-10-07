@@ -47,6 +47,15 @@ El front consume la API del backend mediante la variable `VITE_API_URL`.
 1. Copia el archivo `.env.example` a `.env` y ajusta el valor para tus entornos locales si es necesario.
 2. En Vercel, define `VITE_API_URL` con la URL del backend desplegado (por defecto usamos `https://basurapp-api.vercel.app`).
 
+## Análisis Entrega 3
+
+### Patrones aplicados en el frontend (React)
+
+- **Context/Provider Pattern**: `AuthProvider`, `PickupsProvider` y `NotificationProvider` administran estado global y lo exponen mediante hooks (`useAuth`, `usePickups`, `useNotifications`).
+- **Service/Gateway**: `apiService` abstrae las llamadas HTTP hacia el backend (encapsula headers, manejo de errores, tokens).
+- **Observer / Pub-Sub**: El sistema de notificaciones emite eventos y la UI suscrita muestra toasts reactivos.
+- **Composable Hooks**: Lógica reutilizable empaquetada en hooks (autenticación, recolecciones, notificaciones) para mantener componentes declarativos.
+
 ## Panel ciudadano
 
 El usuario ciudadano puede revisar, editar o eliminar recolecciones existentes desde su panel. El calendario permite seleccionar un día para programar nuevas recolecciones definiendo tipo, localidad, dirección y franja horaria entre las 8:00 a. m. y las 8:00 p. m.
