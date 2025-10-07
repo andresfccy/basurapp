@@ -40,6 +40,13 @@ Vercel detectará automáticamente el proyecto como una aplicación Vite. Se inc
 
 Tras hacer push a GitHub, importa el repositorio en Vercel y selecciona pnpm como gestor de paquetes si no se detecta automáticamente.
 
+### Variables de entorno
+
+El front consume la API del backend mediante la variable `VITE_API_URL`.
+
+1. Copia el archivo `.env.example` a `.env` y ajusta el valor para tus entornos locales si es necesario.
+2. En Vercel, define `VITE_API_URL` con la URL del backend desplegado (por defecto usamos `https://basurapp-api.vercel.app`).
+
 ## Panel ciudadano
 
 El usuario ciudadano puede revisar, editar o eliminar recolecciones existentes desde su panel. El calendario permite seleccionar un día para programar nuevas recolecciones definiendo tipo, localidad, dirección y franja horaria entre las 8:00 a. m. y las 8:00 p. m.
