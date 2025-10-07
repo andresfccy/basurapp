@@ -17,6 +17,7 @@ import {
   type PickupStatus,
   type PickupTimeSlot,
 } from '../data/pickups'
+import { useNotifications } from '../notifications/notification-context'
 
 const statusStyles: Record<PickupStatus, { card: string; chip: string; label: string }> = {
   pending: {
@@ -262,6 +263,7 @@ function HomePage() {
     archivePickup: archivePickupRequest,
     completePickup: completePickupRequest,
   } = usePickups()
+  const { notifyError } = useNotifications()
   const today = useMemo(() => startOfDay(new Date()), [])
   const tomorrow = useMemo(() => {
     const next = new Date(today)
@@ -352,7 +354,7 @@ function HomePage() {
 
   const handleCreatePickup = async (values: PickupFormValues) => {
     if (!isDateInputAfter(values.date, today)) {
-      window.alert('Selecciona una fecha posterior a hoy.')
+      notifyError('Selecciona una fecha posterior a hoy.')
       return
     }
 
@@ -368,7 +370,7 @@ function HomePage() {
     })
 
     if (!validation.valid) {
-      window.alert(validation.message)
+      notifyError(validation.message ?? 'No se pudieron validar las reglas de programación.')
       return
     }
 
@@ -390,7 +392,7 @@ function HomePage() {
   const handleEditPickup = async (values: PickupFormValues) => {
     if (!editingPickup) return
     if (!isDateInputAfter(values.date, today)) {
-      window.alert('Selecciona una fecha posterior a hoy.')
+      notifyError('Selecciona una fecha posterior a hoy.')
       return
     }
 
@@ -407,7 +409,7 @@ function HomePage() {
     })
 
     if (!validation.valid) {
-      window.alert(validation.message)
+      notifyError(validation.message ?? 'No se pudieron validar las reglas de programación.')
       return
     }
 
@@ -456,7 +458,7 @@ function HomePage() {
     if (!pickupToComplete) return
 
     if (new Date(values.completedAt) > new Date()) {
-      window.alert('No puedes registrar una fecha futura.')
+      notifyError('No puedes registrar una fecha futura.')
       return
     }
 

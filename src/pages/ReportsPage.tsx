@@ -7,6 +7,7 @@ import { useConfig } from '../config/config-context'
 import { citizenUsers, collectors, collectorCompanies } from '../data/users'
 import { calculatePickupPoints } from '../utils/points'
 import type { Pickup, PickupKind } from '../data/pickups'
+import { useNotifications } from '../notifications/notification-context'
 
 type ReportType = 'pickups' | 'users' | 'collectors'
 
@@ -90,6 +91,7 @@ function ReportsPage() {
   const { user } = useAuth()
   const { pickups } = usePickups()
   const { pointsFormula } = useConfig()
+  const { notifyError } = useNotifications()
 
   const isAdmin = user?.role === 'admin'
   const currentUserName = user?.displayName ?? ''
@@ -367,7 +369,7 @@ function ReportsPage() {
       const from = parseDateInput(dateFrom)
       const to = parseDateInput(dateTo)
       if (from > to) {
-        window.alert('La fecha inicial no puede ser mayor a la fecha final.')
+        notifyError('La fecha inicial no puede ser mayor a la fecha final.')
         return
       }
     }
