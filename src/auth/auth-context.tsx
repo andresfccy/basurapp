@@ -1,69 +1,32 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import { apiService } from '../services/api'
 
 export type Role = 'basic' | 'admin' | 'collector'
 
 export type AuthenticatedUser = {
-  username: string
+  id: string
+  email: string
   role: Role
   displayName: string
   firstName: string
   lastName: string
-  email: string
-  phone: string
 }
 
 type LoginPayload = {
-  username: string
+  email: string
   password: string
 }
 
 type AuthContextValue = {
   user: AuthenticatedUser | null
-  login: (payload: LoginPayload) => { success: boolean; message?: string }
-  logout: () => void
-}
-
-type MockUser = AuthenticatedUser & {
-  password: string
+  login: (payload: LoginPayload) => Promise<{ success: boolean; message?: string }>
+  logout: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
 const STORAGE_KEY = 'basurapp-auth'
-
-const mockUsers: MockUser[] = [
-  {
-    username: 'ciudadano',
-    password: 'basico123',
-    role: 'basic',
-    displayName: 'Andrea Morales',
-    firstName: 'Andrea',
-    lastName: 'Morales',
-    email: 'andrea.morales@example.com',
-    phone: '+57 300 123 4567',
-  },
-  {
-    username: 'admin',
-    password: 'admin123',
-    role: 'admin',
-    displayName: 'Santiago Ruiz',
-    firstName: 'Santiago',
-    lastName: 'Ruiz',
-    email: 'santiago.ruiz@basurapp.com',
-    phone: '+57 311 987 6543',
-  },
-  {
-    username: 'recolector',
-    password: 'reco123',
-    role: 'collector',
-    displayName: 'Laura García',
-    firstName: 'Laura',
-    lastName: 'García',
-    email: 'laura.garcia@basurapp.com',
-    phone: '+57 312 555 0199',
-  },
-]
 
 function getStoredUser(): AuthenticatedUser | null {
   if (typeof window === 'undefined') return null
@@ -89,26 +52,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [user])
 
-  const login = useCallback((payload: LoginPayload) => {
-    const found = mockUsers.find(
-      (candidate) =>
-        candidate.username.toLowerCase() === payload.username.trim().toLowerCase() &&
-        candidate.password === payload.password,
-    )
+  const login = useCallback(async (payload: LoginPayload) => {
+    try {
+      const response = await apiService.login({
+        email: payload.email,
+        password: payload.password,
+      })
 
-    if (!found) {
-      return { success: false, message: 'Usuario o contraseña incorrectos' }
+      const authenticatedUser: AuthenticatedUser = {
+        id: response.user.id,
+        email: response.user.email,
+        firstName: response.user.firstName,
+        lastName: response.user.lastName,
+        role: response.user.role as Role,
+        displayName: `${response.user.firstName} ${response.user.lastName}`,
+      }
+
+      setUser(authenticatedUser)
+      return { success: true }
+    } catch (error) {
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : 'Error al iniciar sesión',
+      }
     }
-
-    const { password: _password, ...authenticated } = found
-    void _password
-    setUser(authenticated)
-
-    return { success: true }
   }, [])
 
-  const logout = useCallback(() => {
-    setUser(null)
+  const logout = useCallback(async () => {
+    try {
+      await apiService.logout()
+    } finally {
+      setUser(null)
+    }
   }, [])
 
   const value = useMemo(() => ({ user, login, logout }), [user, login, logout])
@@ -136,5 +111,3 @@ export function getRoleLabel(role: Role) {
       return 'Sin rol'
   }
 }
-
-export const authPresets = mockUsers.map(({ password, ...rest }) => ({ ...rest, password }))

@@ -118,7 +118,7 @@ function DashboardLayout() {
 
         <button
           type="button"
-          onClick={logout}
+          onClick={() => void logout()}
           className={[
             'mt-6 inline-flex items-center rounded-md border text-sm font-medium transition hover:border-red-500/70 hover:text-red-300',
             'border-slate-700/70 text-slate-300',
